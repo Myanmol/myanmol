@@ -1,0 +1,6 @@
+{
+  "name": "FinLedger Pro - Multi-User Billing & Party Ledger",
+  "description": "Mobile financial accounting app for recording Sales, Purchases, Receipts, Payments, Expenses with real-time party balances as of any date, and PDF/Excel export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
