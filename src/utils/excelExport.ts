@@ -12,10 +12,7 @@ import {
 import { generatePartyLedgerStatement } from './ledger';
 import { formatDate } from './formatters';
 
-/**
- * Exports Party Detailed Ledger to Excel (.xlsx)
- */
-export function exportPartyLedgerExcel(
+export function buildPartyLedgerWorkbook(
   company: CompanyProfile,
   party: Party,
   sales: SaleBill[],
@@ -24,7 +21,7 @@ export function exportPartyLedgerExcel(
   payments: Payment[],
   asOfDate: string,
   startDate?: string
-) {
+): { workbook: XLSX.WorkBook; fileName: string } {
   const {
     entries,
     openingBalanceRow,
@@ -82,7 +79,6 @@ export function exportPartyLedgerExcel(
     ],
   ];
 
-  // Transaction rows
   entries.forEach((entry) => {
     aoaData.push([
       entry.date,
@@ -99,7 +95,6 @@ export function exportPartyLedgerExcel(
     ]);
   });
 
-  // Totals row
   aoaData.push(['']);
   aoaData.push([
     'TOTALS',
@@ -117,25 +112,23 @@ export function exportPartyLedgerExcel(
 
   const worksheet = XLSX.utils.aoa_to_sheet(aoaData);
 
-  // Set column widths
   worksheet['!cols'] = [
-    { wch: 14 }, // Date
-    { wch: 18 }, // Type
-    { wch: 18 }, // Voucher No
-    { wch: 45 }, // Particulars
-    { wch: 25 }, // Site
-    { wch: 15 }, // Debit
-    { wch: 15 }, // Credit
-    { wch: 16 }, // Running Bal
-    { wch: 14 }, // Dr/Cr
-    { wch: 18 }, // Recorded By
-    { wch: 30 }, // Notes
+    { wch: 14 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 45 },
+    { wch: 25 },
+    { wch: 15 },
+    { wch: 15 },
+    { wch: 16 },
+    { wch: 14 },
+    { wch: 18 },
+    { wch: 30 },
   ];
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Party Ledger');
 
-  // Also include a secondary sheet with specific bills if customer or supplier
   const partySales = sales.filter((s) => s.partyId === party.id && s.date <= asOfDate);
   if (partySales.length > 0) {
     const salesRows: any[][] = [
@@ -195,17 +188,65 @@ export function exportPartyLedgerExcel(
   }
 
   const safePartyName = party.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-  XLSX.writeFile(workbook, `ledger_${safePartyName}_${asOfDate}.xlsx`);
+  const fileName = `ledger_${safePartyName}_${asOfDate}.xlsx`;
+  return { workbook, fileName };
 }
 
-/**
- * Exports All Parties Balances Summary as of Date to Excel
- */
-export function exportAllPartiesSummaryExcel(
+export function exportPartyLedgerExcel(
+  company: CompanyProfile,
+  party: Party,
+  sales: SaleBill[],
+  receipts: Receipt[],
+  purchases: PurchaseBill[],
+  payments: Payment[],
+  asOfDate: string,
+  startDate?: string
+) {
+  const { workbook, fileName } = buildPartyLedgerWorkbook(
+    company,
+    party,
+    sales,
+    receipts,
+    purchases,
+    payments,
+    asOfDate,
+    startDate
+  );
+  XLSX.writeFile(workbook, fileName);
+}
+
+export function getPartyLedgerExcelBlob(
+  company: CompanyProfile,
+  party: Party,
+  sales: SaleBill[],
+  receipts: Receipt[],
+  purchases: PurchaseBill[],
+  payments: Payment[],
+  asOfDate: string,
+  startDate?: string
+): { blob: Blob; fileName: string } {
+  const { workbook, fileName } = buildPartyLedgerWorkbook(
+    company,
+    party,
+    sales,
+    receipts,
+    purchases,
+    payments,
+    asOfDate,
+    startDate
+  );
+  const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbout], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  return { blob, fileName };
+}
+
+export function buildAllPartiesSummaryWorkbook(
   company: CompanyProfile,
   summaries: PartyBalanceSummary[],
   asOfDate: string
-) {
+): { workbook: XLSX.WorkBook; fileName: string } {
   const aoaData: any[][] = [
     [company.name],
     [`${company.address} | Phone: ${company.phone}`],
@@ -307,12 +348,32 @@ export function exportAllPartiesSummaryExcel(
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Parties Balance Sheet');
-  XLSX.writeFile(workbook, `all_parties_balance_as_of_${asOfDate}.xlsx`);
+  const fileName = `all_parties_balance_as_of_${asOfDate}.xlsx`;
+  return { workbook, fileName };
 }
 
-/**
- * Exports Sales Register with item level details to Excel
- */
+export function exportAllPartiesSummaryExcel(
+  company: CompanyProfile,
+  summaries: PartyBalanceSummary[],
+  asOfDate: string
+) {
+  const { workbook, fileName } = buildAllPartiesSummaryWorkbook(company, summaries, asOfDate);
+  XLSX.writeFile(workbook, fileName);
+}
+
+export function getAllPartiesSummaryExcelBlob(
+  company: CompanyProfile,
+  summaries: PartyBalanceSummary[],
+  asOfDate: string
+): { blob: Blob; fileName: string } {
+  const { workbook, fileName } = buildAllPartiesSummaryWorkbook(company, summaries, asOfDate);
+  const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbout], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  return { blob, fileName };
+}
+
 export function exportSalesRegisterExcel(
   company: CompanyProfile,
   sales: SaleBill[],
@@ -404,9 +465,6 @@ export function exportSalesRegisterExcel(
   XLSX.writeFile(workbook, `sales_register_${asOfDate}.xlsx`);
 }
 
-/**
- * Exports Expenses Register to Excel
- */
 export function exportExpensesExcel(
   company: CompanyProfile,
   expenses: Expense[],

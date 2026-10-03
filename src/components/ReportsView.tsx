@@ -10,6 +10,8 @@ import {
   TrendingUp,
   TrendingDown,
   Scale,
+  Cloud,
+  ExternalLink,
 } from 'lucide-react';
 import {
   Party,
@@ -22,13 +24,22 @@ import {
 } from '../types';
 import { calculateAllPartyBalancesAsOfDate } from '../utils/ledger';
 import { formatCurrency, formatDate } from '../utils/formatters';
-import { exportPartyLedgerPDF, exportAllPartiesSummaryPDF } from '../utils/pdfExport';
+import {
+  exportPartyLedgerPDF,
+  exportAllPartiesSummaryPDF,
+  getPartyLedgerPDFBlob,
+  getAllPartiesSummaryPDFBlob,
+} from '../utils/pdfExport';
 import {
   exportPartyLedgerExcel,
   exportAllPartiesSummaryExcel,
   exportSalesRegisterExcel,
   exportExpensesExcel,
+  getPartyLedgerExcelBlob,
+  getAllPartiesSummaryExcelBlob,
 } from '../utils/excelExport';
+import { getAccessToken } from '../utils/firebaseAuth';
+import { getOrCreateFinLedgerFolder, uploadFileToDrive } from '../utils/googleDrive';
 
 interface ReportsViewProps {
   company: CompanyProfile;
@@ -39,6 +50,7 @@ interface ReportsViewProps {
   payments: Payment[];
   expenses: Expense[];
   balanceAsOfDate: string;
+  onOpenGoogleDrive: () => void;
 }
 
 export const ReportsView: React.FC<ReportsViewProps> = ({
@@ -50,6 +62,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   payments,
   expenses,
   balanceAsOfDate,
+  onOpenGoogleDrive,
 }) => {
   const [selectedPartyId, setSelectedPartyId] = useState<string>(
     parties.length > 0 ? parties[0].id : ''
@@ -57,6 +70,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const [reportAsOfDate, setReportAsOfDate] = useState<string>(balanceAsOfDate);
   const [reportStartDate, setReportStartDate] = useState<string>('');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
 
   const selectedParty = parties.find((p) => p.id === selectedPartyId);
 
@@ -65,7 +79,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     setTimeout(() => setStatusMessage(null), 3500);
   };
 
-  // 1. Party Ledger Exports
+  // 1. Party Ledger Local Exports
   const handleExportPartyPDF = () => {
     if (!selectedParty) return;
     exportPartyLedgerPDF(
@@ -96,6 +110,77 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     showStatus(`Downloaded Excel Ledger (.xlsx) for ${selectedParty.name}`);
   };
 
+  // 1b. Party Ledger Save to Google Drive
+  const handleSavePartyPDFToDrive = async () => {
+    if (!selectedParty) return;
+    const token = await getAccessToken();
+    if (!token) {
+      onOpenGoogleDrive();
+      return;
+    }
+
+    setIsUploadingToDrive(true);
+    try {
+      const folderId = await getOrCreateFinLedgerFolder(token);
+      const { blob, fileName } = getPartyLedgerPDFBlob(
+        company,
+        selectedParty,
+        sales,
+        receipts,
+        purchases,
+        payments,
+        reportAsOfDate,
+        reportStartDate || undefined
+      );
+
+      await uploadFileToDrive(token, fileName, 'application/pdf', blob, folderId);
+      showStatus(`Saved "${fileName}" to Google Drive (FinLedger folder)!`);
+    } catch (err: any) {
+      console.error('Drive upload failed:', err);
+      alert('Failed to save to Google Drive: ' + err.message);
+    } finally {
+      setIsUploadingToDrive(false);
+    }
+  };
+
+  const handleSavePartyExcelToDrive = async () => {
+    if (!selectedParty) return;
+    const token = await getAccessToken();
+    if (!token) {
+      onOpenGoogleDrive();
+      return;
+    }
+
+    setIsUploadingToDrive(true);
+    try {
+      const folderId = await getOrCreateFinLedgerFolder(token);
+      const { blob, fileName } = getPartyLedgerExcelBlob(
+        company,
+        selectedParty,
+        sales,
+        receipts,
+        purchases,
+        payments,
+        reportAsOfDate,
+        reportStartDate || undefined
+      );
+
+      await uploadFileToDrive(
+        token,
+        fileName,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        blob,
+        folderId
+      );
+      showStatus(`Saved "${fileName}" to Google Drive (FinLedger folder)!`);
+    } catch (err: any) {
+      console.error('Drive upload failed:', err);
+      alert('Failed to save to Google Drive: ' + err.message);
+    } finally {
+      setIsUploadingToDrive(false);
+    }
+  };
+
   // 2. All Parties Summary Exports
   const summaries = calculateAllPartyBalancesAsOfDate(
     parties,
@@ -116,6 +201,26 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     showStatus(`Downloaded All Parties Balance Sheet (Excel) as of ${formatDate(reportAsOfDate)}`);
   };
 
+  const handleSaveAllPDFToDrive = async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      onOpenGoogleDrive();
+      return;
+    }
+
+    setIsUploadingToDrive(true);
+    try {
+      const folderId = await getOrCreateFinLedgerFolder(token);
+      const { blob, fileName } = getAllPartiesSummaryPDFBlob(company, summaries, reportAsOfDate);
+      await uploadFileToDrive(token, fileName, 'application/pdf', blob, folderId);
+      showStatus(`Saved Balance Sheet PDF to Google Drive!`);
+    } catch (err: any) {
+      alert('Failed to save to Google Drive: ' + err.message);
+    } finally {
+      setIsUploadingToDrive(false);
+    }
+  };
+
   // 3. Sales Register Export
   const handleExportSalesExcel = () => {
     exportSalesRegisterExcel(company, sales, reportAsOfDate);
@@ -132,16 +237,26 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     <div className="p-3.5 sm:p-5 max-w-3xl mx-auto space-y-5 pb-28">
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-slate-900 to-indigo-950 p-5 rounded-2xl text-white shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-400">
-            <FileSpreadsheet className="w-6 h-6" />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-400">
+              <FileSpreadsheet className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-bold">Accounting Reports & Cloud Vault</h2>
+              <p className="text-xs text-slate-300">
+                Export party ledger statements and balance sheets in PDF & Excel formats or sync to Google Drive
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-base sm:text-lg font-bold">Accounting Reports & Statements</h2>
-            <p className="text-xs text-slate-300">
-              Export party ledger statements and balance sheets in PDF & Excel formats
-            </p>
-          </div>
+
+          <button
+            onClick={onOpenGoogleDrive}
+            className="self-start sm:self-auto px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-semibold text-xs flex items-center gap-2 transition-colors"
+          >
+            <Cloud className="w-4 h-4 text-indigo-300" />
+            <span>Google Drive Vault</span>
+          </button>
         </div>
 
         {/* Global as-of date selector for reports */}
@@ -221,7 +336,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </div>
         )}
 
-        {/* Export Buttons */}
+        {/* Local Download Buttons */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
           <button
             onClick={handleExportPartyPDF}
@@ -236,6 +351,30 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           >
             <FileSpreadsheet className="w-4 h-4" /> Download Statement (Excel .xlsx)
           </button>
+        </div>
+
+        {/* Google Drive Upload Actions */}
+        <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs text-slate-500 font-semibold flex items-center gap-1.5">
+            <Cloud className="w-3.5 h-3.5 text-indigo-500" />
+            Cloud Storage:
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSavePartyPDFToDrive}
+              disabled={isUploadingToDrive}
+              className="px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              <FileText className="w-3.5 h-3.5 text-rose-500" /> Save PDF to Drive
+            </button>
+            <button
+              onClick={handleSavePartyExcelToDrive}
+              disabled={isUploadingToDrive}
+              className="px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" /> Save Excel to Drive
+            </button>
+          </div>
         </div>
       </div>
 
@@ -270,6 +409,16 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all active:scale-98"
           >
             <FileSpreadsheet className="w-4 h-4" /> All Parties Balance Sheet (Excel)
+          </button>
+        </div>
+
+        <div className="pt-2 border-t border-slate-100 flex items-center justify-end">
+          <button
+            onClick={handleSaveAllPDFToDrive}
+            disabled={isUploadingToDrive}
+            className="px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+          >
+            <Cloud className="w-3.5 h-3.5 text-indigo-500" /> Save Balance Sheet (PDF) to Google Drive
           </button>
         </div>
       </div>

@@ -28,8 +28,10 @@ import {
 } from '../types';
 import { generatePartyLedgerStatement } from '../utils/ledger';
 import { formatCurrency, formatDate } from '../utils/formatters';
-import { exportPartyLedgerPDF } from '../utils/pdfExport';
+import { exportPartyLedgerPDF, getPartyLedgerPDFBlob } from '../utils/pdfExport';
 import { exportPartyLedgerExcel } from '../utils/excelExport';
+import { getAccessToken } from '../utils/firebaseAuth';
+import { getOrCreateFinLedgerFolder, uploadFileToDrive } from '../utils/googleDrive';
 
 interface PartyLedgerViewProps {
   party: Party;
@@ -46,6 +48,7 @@ interface PartyLedgerViewProps {
   onAddPurchase: (partyId: string) => void;
   onAddPayment: (partyId: string) => void;
   onViewTransaction: (tx: FinancialTransaction) => void;
+  onOpenGoogleDrive: () => void;
 }
 
 export const PartyLedgerView: React.FC<PartyLedgerViewProps> = ({
@@ -63,6 +66,7 @@ export const PartyLedgerView: React.FC<PartyLedgerViewProps> = ({
   onAddPurchase,
   onAddPayment,
   onViewTransaction,
+  onOpenGoogleDrive,
 }) => {
   const [dateFilter, setDateFilter] = useState<'all' | 'custom'>('all');
   const [startDate, setStartDate] = useState<string>('');
@@ -110,6 +114,41 @@ export const PartyLedgerView: React.FC<PartyLedgerViewProps> = ({
       cutoffDate,
       dateFilter === 'custom' && startDate ? startDate : undefined
     );
+  };
+
+  const [isSavingToDrive, setIsSavingToDrive] = useState(false);
+  const [driveNotification, setDriveNotification] = useState<string | null>(null);
+
+  const handleSaveToDrive = async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      onOpenGoogleDrive();
+      return;
+    }
+
+    setIsSavingToDrive(true);
+    try {
+      const folderId = await getOrCreateFinLedgerFolder(token);
+      const { blob, fileName } = getPartyLedgerPDFBlob(
+        company,
+        party,
+        sales,
+        receipts,
+        purchases,
+        payments,
+        cutoffDate,
+        dateFilter === 'custom' && startDate ? startDate : undefined
+      );
+
+      await uploadFileToDrive(token, fileName, 'application/pdf', blob, folderId);
+      setDriveNotification(`Statement saved to Google Drive (FinLedger Accounting folder)!`);
+      setTimeout(() => setDriveNotification(null), 4000);
+    } catch (err: any) {
+      console.error('Drive save error:', err);
+      alert('Failed to save to Google Drive: ' + err.message);
+    } finally {
+      setIsSavingToDrive(false);
+    }
   };
 
   const handleCall = () => {
@@ -162,6 +201,22 @@ export const PartyLedgerView: React.FC<PartyLedgerViewProps> = ({
             <span className="hidden sm:inline">Excel</span>
           </button>
           <button
+            onClick={handleSaveToDrive}
+            disabled={isSavingToDrive}
+            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-xs"
+            title="Upload Statement to Google Drive"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 87.3 78" fill="none">
+              <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8H0c0 1.55.4 3.1 1.2 4.5z" fill="#0066DA"/>
+              <path d="M43.65 25 29.9 1.2c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44c-.8 1.4-1.2 2.95-1.2 4.5h27.5z" fill="#00AC47"/>
+              <path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H59.8l5.85 10.15z" fill="#EA4335"/>
+              <path d="M43.65 25 57.4 1.2C56.05.4 54.5 0 52.85 0H34.45c-1.65 0-3.2.4-4.55 1.2z" fill="#00832D"/>
+              <path d="m59.8 53-13.75-23.8-13.75 23.8h5.85L43.65 43.5 49.15 53z" fill="#2684FC"/>
+              <path d="M73.4 26.5 60.7 4.5c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25l16.15 28h27.5c0-1.55-.4-3.1-1.2-4.5z" fill="#FFBA00"/>
+            </svg>
+            <span className="hidden sm:inline">{isSavingToDrive ? 'Saving...' : 'Drive'}</span>
+          </button>
+          <button
             onClick={() => onEditParty(party)}
             className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
             title="Edit Party Info"
@@ -172,6 +227,17 @@ export const PartyLedgerView: React.FC<PartyLedgerViewProps> = ({
       </div>
 
       <div className="max-w-3xl mx-auto p-4 space-y-4">
+        {driveNotification && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between animate-in fade-in">
+            <span>{driveNotification}</span>
+            <button
+              onClick={onOpenGoogleDrive}
+              className="text-indigo-600 underline font-bold ml-2"
+            >
+              View Drive Files
+            </button>
+          </div>
+        )}
         {/* Party Profile Card */}
         <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-slate-200">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">

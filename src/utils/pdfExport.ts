@@ -10,10 +10,7 @@ import {
 import { generatePartyLedgerStatement } from './ledger';
 import { formatCurrency, formatDate } from './formatters';
 
-/**
- * Exports a party's detailed running ledger statement to PDF
- */
-export function exportPartyLedgerPDF(
+export function buildPartyLedgerPDFDoc(
   company: CompanyProfile,
   party: Party,
   sales: SaleBill[],
@@ -22,7 +19,7 @@ export function exportPartyLedgerPDF(
   payments: any[],
   asOfDate: string,
   startDate?: string
-) {
+): { doc: jsPDF; fileName: string } {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -118,11 +115,11 @@ export function exportPartyLedgerPDF(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
   if (closingStatus === 'receivable') {
-    doc.setTextColor(217, 119, 6); // Amber / orange Dr
+    doc.setTextColor(217, 119, 6);
   } else if (closingStatus === 'payable') {
-    doc.setTextColor(225, 29, 72); // Rose Cr
+    doc.setTextColor(225, 29, 72);
   } else {
-    doc.setTextColor(16, 185, 129); // Green settled
+    doc.setTextColor(16, 185, 129);
   }
   doc.text(formatCurrency(closingBalance), 191, 64, { align: 'right' });
 
@@ -134,7 +131,6 @@ export function exportPartyLedgerPDF(
   // 3. Table Rows
   const tableRows: any[] = [];
 
-  // Opening Balance Row
   tableRows.push([
     formatDate(openingBalanceRow.date),
     'OPENING',
@@ -147,7 +143,6 @@ export function exportPartyLedgerPDF(
     }`,
   ]);
 
-  // Transaction Entries
   entries.forEach((entry) => {
     const typeLabel =
       entry.type === 'sale'
@@ -177,7 +172,6 @@ export function exportPartyLedgerPDF(
     ]);
   });
 
-  // Render Table
   autoTable(doc, {
     startY: 84,
     head: [['Date', 'Type', 'Voucher #', 'Particulars / Items', 'Debit (Dr)', 'Credit (Cr)', 'Balance']],
@@ -210,12 +204,10 @@ export function exportPartyLedgerPDF(
     },
   });
 
-  // 4. Summary & Signatures at bottom
   // @ts-ignore
   const finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 8 : 220;
 
   if (finalY < 250) {
-    // Total summary box
     doc.setFillColor(241, 245, 249);
     doc.rect(14, finalY, 182, 16, 'F');
     doc.setFont('helvetica', 'bold');
@@ -234,7 +226,6 @@ export function exportPartyLedgerPDF(
       finalY + 9
     );
 
-    // Signature line
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(100, 116, 139);
@@ -242,26 +233,70 @@ export function exportPartyLedgerPDF(
     doc.text('Authorized Signatory & Stamp', 196, finalY + 28, { align: 'right' });
   }
 
-  // Save the PDF
   const safePartyName = party.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-  doc.save(`ledger_${safePartyName}_${asOfDate}.pdf`);
+  const fileName = `ledger_${safePartyName}_${asOfDate}.pdf`;
+
+  return { doc, fileName };
 }
 
-/**
- * Exports All Parties Balances Summary as of Date to PDF
- */
-export function exportAllPartiesSummaryPDF(
+export function exportPartyLedgerPDF(
+  company: CompanyProfile,
+  party: Party,
+  sales: SaleBill[],
+  receipts: any[],
+  purchases: PurchaseBill[],
+  payments: any[],
+  asOfDate: string,
+  startDate?: string
+) {
+  const { doc, fileName } = buildPartyLedgerPDFDoc(
+    company,
+    party,
+    sales,
+    receipts,
+    purchases,
+    payments,
+    asOfDate,
+    startDate
+  );
+  doc.save(fileName);
+}
+
+export function getPartyLedgerPDFBlob(
+  company: CompanyProfile,
+  party: Party,
+  sales: SaleBill[],
+  receipts: any[],
+  purchases: PurchaseBill[],
+  payments: any[],
+  asOfDate: string,
+  startDate?: string
+): { blob: Blob; fileName: string } {
+  const { doc, fileName } = buildPartyLedgerPDFDoc(
+    company,
+    party,
+    sales,
+    receipts,
+    purchases,
+    payments,
+    asOfDate,
+    startDate
+  );
+  const blob = doc.output('blob');
+  return { blob, fileName };
+}
+
+export function buildAllPartiesSummaryPDFDoc(
   company: CompanyProfile,
   summaries: PartyBalanceSummary[],
   asOfDate: string
-) {
+): { doc: jsPDF; fileName: string } {
   const doc = new jsPDF({
     orientation: 'landscape',
     unit: 'mm',
     format: 'a4',
   });
 
-  // Header banner
   doc.setFillColor(248, 250, 252);
   doc.rect(0, 0, 297, 34, 'F');
   doc.setDrawColor(226, 232, 240);
@@ -360,7 +395,6 @@ export function exportAllPartiesSummaryPDF(
     },
   });
 
-  // Footer summary
   // @ts-ignore
   const finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 8 : 170;
   if (finalY < 190) {
@@ -386,5 +420,25 @@ export function exportAllPartiesSummaryPDF(
     );
   }
 
-  doc.save(`party_balances_summary_${asOfDate}.pdf`);
+  const fileName = `party_balances_summary_${asOfDate}.pdf`;
+  return { doc, fileName };
+}
+
+export function exportAllPartiesSummaryPDF(
+  company: CompanyProfile,
+  summaries: PartyBalanceSummary[],
+  asOfDate: string
+) {
+  const { doc, fileName } = buildAllPartiesSummaryPDFDoc(company, summaries, asOfDate);
+  doc.save(fileName);
+}
+
+export function getAllPartiesSummaryPDFBlob(
+  company: CompanyProfile,
+  summaries: PartyBalanceSummary[],
+  asOfDate: string
+): { blob: Blob; fileName: string } {
+  const { doc, fileName } = buildAllPartiesSummaryPDFDoc(company, summaries, asOfDate);
+  const blob = doc.output('blob');
+  return { blob, fileName };
 }

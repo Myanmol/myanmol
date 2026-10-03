@@ -33,6 +33,7 @@ import { PartyModal } from './components/PartyModal';
 import { BillDetailModal } from './components/BillDetailModal';
 import { UserSwitcherModal } from './components/UserSwitcherModal';
 import { CompanyModal } from './components/CompanyModal';
+import { GoogleDriveModal } from './components/GoogleDriveModal';
 
 export default function App() {
   const [state, setState] = useState<AppStateData>(() => loadAppState());
@@ -55,6 +56,7 @@ export default function App() {
   const [inspectingTransaction, setInspectingTransaction] = useState<FinancialTransaction | null>(null);
   const [isUserSwitcherOpen, setIsUserSwitcherOpen] = useState(false);
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
+  const [isGoogleDriveModalOpen, setIsGoogleDriveModalOpen] = useState(false);
 
   // Synchronize state with persistent localStorage
   useEffect(() => {
@@ -240,6 +242,7 @@ export default function App() {
         onDateChange={handleDateChange}
         onOpenUserSwitcher={() => setIsUserSwitcherOpen(true)}
         onOpenCompanySettings={() => setIsCompanyModalOpen(true)}
+        onOpenGoogleDrive={() => setIsGoogleDriveModalOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -261,6 +264,7 @@ export default function App() {
             onAddPurchase={handleAddPurchaseForParty}
             onAddPayment={handleAddPaymentForParty}
             onViewTransaction={(tx) => setInspectingTransaction(tx)}
+            onOpenGoogleDrive={() => setIsGoogleDriveModalOpen(true)}
           />
         ) : activeTab === 'dashboard' ? (
           <DashboardView
@@ -317,6 +321,7 @@ export default function App() {
             payments={state.payments}
             expenses={state.expenses}
             balanceAsOfDate={state.balanceAsOfDate}
+            onOpenGoogleDrive={() => setIsGoogleDriveModalOpen(true)}
           />
         ) : null}
       </main>
@@ -439,6 +444,14 @@ export default function App() {
         onSaveCompany={(company) =>
           setState((prev) => ({ ...prev, company }))
         }
+      />
+
+      {/* Google Drive Cloud Vault Modal */}
+      <GoogleDriveModal
+        isOpen={isGoogleDriveModalOpen}
+        onClose={() => setIsGoogleDriveModalOpen(false)}
+        currentState={state}
+        onRestoreState={(newState) => setState(newState)}
       />
     </div>
   );
